@@ -1,11 +1,10 @@
-
 from __future__ import annotations
 
 import json
 import os
 from langchain_openai import ChatOpenAI
 
-from .config import DEFAULT_MODEL, DEFAULT_MAX_TEXT_CHARS, OPENROUTER_BASE_URL
+from .config import DEFAULT_MODEL, OPENROUTER_BASE_URL
 from .models import EvaluationResponse
 
 
@@ -65,6 +64,7 @@ Active criteria:
 Proposal:
 {proposal_text}
 """.strip()
+
 
 def evaluate_with_llm(
     supplier_name: str,
@@ -131,7 +131,7 @@ def evaluate_with_llm(
                 "success": False,
                 "error": str(exc),
             },
-        }:
+        }
 
 
 def evaluate_mock(supplier_name: str, proposal_text: str, criteria: list[dict]) -> dict:
