@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Agentic RFP Evaluation & Supplier Ranking** is a Streamlit-based application that automates the evaluation of Request for Proposal (RFP) submissions from suppliers. It uses LangGraph for workflow orchestration and advanced scoring logic for intelligent supplier ranking.
+**Agentic RFP Evaluation & Supplier Ranking** is a Streamlit-based application that automates the evaluation of Request for Proposal (RFP) submissions from suppliers. It uses LangGraph for workflow orchestration and provides deterministic, peer-comparison-based supplier ranking.
 
 ## Features
 
@@ -69,35 +69,149 @@ Implements intelligent scoring normalization, peer-comparison ranking, and tie-b
 **Key Scoring Functions:**
 
 - **`absolute_weighted_score(eval_obj, criteria) → float`**
-  - Calculates the raw weighted score for a supplier based on individual criterion scores
-  - Formula: `Σ (criterion_score / criterion_max_score) × criterion_weight`
-  - Returns a normalized float value rounded to 4 decimal places
+  
+  Calculates the raw weighted score for a supplier based on individual criterion scores. This represents the absolute performance normalized to a 0-100 scale.
+
+  **Mathematical Formula:**
+  
+  Let:
+  - `n` = number of active criteria
+  - `s_i` = score awarded to supplier for criterion i
+  - `m_i` = maximum possible score for criterion i
+  - `w_i` = weight of criterion i (as a decimal, sum = 1.0)
+
+  **Absolute Weighted Score:**
+  ```
+  AWS = Σ(i=1 to n) [ (s_i / m_i) × w_i × 100 ]
+  ```
+
+  - Normalizes each criterion score by its maximum possible score
+  - Weights the normalized score by the criterion's importance weight
+  - Scales to 0-100 range
+  - Returns value rounded to 4 decimal places
   - Handles variable max scores per criterion
 
-- **`rank_suppliers(records, criteria) → list[dict]`**
-  - Ranks suppliers using a multi-step process:
-    1. **Benchmark Calculation**: For each criterion, establishes the highest valid score observed as the benchmark
-    2. **Relative Performance Indexing (PPI)**:
-       - Calculates relative performance as `(supplier_score / benchmark) × 100%` for each criterion
-       - Handles zero-benchmark edge case by assigning 100% relative performance
-       - Weights relative performance by criterion weight: `weighted_relative_sum / total_weight`
-    3. **Enrichment**: Augments each record with:
-       - absolute_score: Raw weighted score
-       - ppi: Peer Performance Index (0-100+ scale)
-       - Gap analysis: Score difference from benchmark for each criterion
-       - Detailed criteria breakdown with scores, benchmarks, gaps, and justifications
-    4. **Deterministic Tie-Breaking**: Sorts suppliers by:
-       - PPI (descending) - higher relative performance ranks first
-       - Submission date (ascending) - earlier submissions preferred
-       - Experience rating (descending) - higher ratings preferred
-       - Supplier name (ascending alphabetically) - ensures total determinism
-    5. **Rank Assignment**: Assigns final_rank starting from 1
+---
 
-**Scoring Concepts:**
-- **Absolute Score**: Weighted sum of normalized criterion scores (0-100 scale)
-- **PPI (Peer Performance Index)**: Relative performance vs. the best supplier for each criterion, weighted by importance
-- **Benchmarking**: Dynamic baseline set by highest-scoring supplier, enabling fair peer comparison
-- **Gap Analysis**: Difference between supplier score and benchmark reveals improvement opportunities
+- **`rank_suppliers(records, criteria) → list[dict]`**
+  
+  Ranks suppliers using a multi-step process with sophisticated peer comparison and deterministic tie-breaking.
+
+  #### Step 1: Benchmark Calculation
+  
+  For each criterion, establishes the highest valid score observed as the benchmark:
+  
+  ```
+  B_i = max(s_i^(1), s_i^(2), ..., s_i^(k))
+  ```
+  
+  Where:
+  - `B_i` = benchmark score for criterion i
+  - `s_i^(j)` = score of supplier j for criterion i
+  - `k` = total number of suppliers
+
+  #### Step 2: Relative Performance Indexing (PPI)
+  
+  Calculates relative performance as a percentage of the benchmark for each criterion, then aggregates with weights.
+
+  **Relative Performance Per Criterion:**
+  ```
+  RP_i = (s_i / B_i) × 100%
+  ```
+  
+  **Special Case** (Zero-Benchmark Handling):
+  ```
+  If B_i = 0, then RP_i = 100%
+  ```
+
+  **Peer Performance Index (PPI) - Aggregate:**
+  ```
+  PPI = [ Σ(i=1 to n) (RP_i × w_i) ] / Σ(i=1 to n) w_i
+  ```
+  
+  Or simplified (if weights sum to 1.0):
+  ```
+  PPI = Σ(i=1 to n) (RP_i × w_i)
+  ```
+
+  Where:
+  - `RP_i` = relative performance for criterion i
+  - `w_i` = weight of criterion i
+  - Result is on a 0-100+ scale (can exceed 100 if supplier exceeds benchmark)
+
+  #### Step 3: Enrichment
+  
+  Augments each record with comprehensive scoring data:
+  - **absolute_score**: Raw weighted score (Absolute Weighted Score formula above)
+  - **ppi**: Peer Performance Index (calculated above)
+  - **Gap Analysis**: For each criterion:
+    ```
+    Gap_i = s_i - B_i
+    ```
+    Reveals improvement opportunities and supplier positioning relative to best-in-class
+  
+  - **Detailed Criteria Breakdown**: For each criterion includes:
+    - `score`: Awarded score
+    - `max_score`: Maximum possible score
+    - `benchmark`: Highest score achieved by any supplier
+    - `gap`: Difference from benchmark
+    - `relative_performance`: Percentage vs. benchmark
+    - `justification`: LLM-provided rationale
+
+  #### Step 4: Deterministic Tie-Breaking
+  
+  Sorts suppliers using a priority-ordered comparison hierarchy:
+
+  ```
+  Sort By:
+  1. PPI (descending)              # Higher relative performance ranks first
+  2. Submission Date (ascending)   # Earlier submissions preferred (older dates first)
+  3. Experience Rating (descending) # Higher ratings preferred
+  4. Supplier Name (ascending)     # Alphabetically for complete determinism
+  ```
+
+  Example sort order: `(-ppi, submission_date, -experience_rating, supplier_name)`
+
+  #### Step 5: Rank Assignment
+  
+  Assigns final ranking sequentially:
+  ```
+  rank = 1, 2, 3, ..., k (for k suppliers)
+  ```
+
+  Assigned after sorting by tie-breaking criteria.
+
+---
+
+**Scoring Concepts - Detailed Definitions:**
+
+- **Absolute Score**: 
+  - Weighted sum of normalized criterion scores
+  - Range: 0-100 (typically)
+  - Represents absolute performance against established criteria
+  - Independent of peer performance
+  - Formula: `AWS = Σ [ (s_i / m_i) × w_i × 100 ]`
+
+- **PPI (Peer Performance Index)**: 
+  - Relative performance vs. the best supplier for each criterion, weighted by importance
+  - Range: 0-∞ (typically 0-150)
+  - Enables fair peer comparison and benchmarking
+  - Emphasizes competitive positioning
+  - Formula: `PPI = Σ [ ((s_i / B_i) × 100) × w_i ]`
+
+- **Benchmarking**: 
+  - Dynamic baseline set by highest-scoring supplier per criterion
+  - Criterion-specific: each criterion has its own benchmark
+  - Enables fair peer comparison despite variable max scores
+  - Adapts to supplier pool composition
+  - Formula: `B_i = max(s_i^(1), ..., s_i^(k))`
+
+- **Gap Analysis**: 
+  - Difference between supplier score and benchmark for each criterion
+  - Range: ≤0 (negative or zero gaps indicate below-benchmark performance)
+  - Reveals improvement opportunities
+  - Highlights competitive strengths and weaknesses
+  - Formula: `Gap_i = s_i - B_i`
 
 ### `app/llm.py`
 Handles OpenRouter API integration and LLM-based evaluation of supplier proposals.
