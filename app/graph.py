@@ -24,7 +24,6 @@ class RFPGraphState(TypedDict, total=False):
     model: str | None
     api_key: str | None
     base_url: str | None
-    pdf_backend: str
 
     # Workflow state
     criteria: list[dict]
@@ -54,7 +53,7 @@ def create_batch_node(state: RFPGraphState) -> dict:
 def extract_documents_node(state: RFPGraphState) -> dict:
     extracted = []
     for supplier in state["suppliers"]:
-        text = extract_pdf_text(supplier["pdf_bytes"], backend=state.get("pdf_backend", "auto"))
+        text = extract_pdf_text(supplier["pdf_bytes"])
         extracted.append({
             "supplier_name": supplier["supplier_name"],
             "submission_date": supplier["submission_date"],
@@ -161,7 +160,6 @@ def evaluate_batch_langgraph(
     model=None,
     api_key=None,
     base_url=None,
-    pdf_backend="auto",
 ):
     initial_state: RFPGraphState = {
         "suppliers": suppliers,
@@ -170,7 +168,6 @@ def evaluate_batch_langgraph(
         "model": model,
         "api_key": api_key,
         "base_url": base_url,
-        "pdf_backend": pdf_backend,
     }
 
     try:
