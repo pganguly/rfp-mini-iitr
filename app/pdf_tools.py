@@ -1,5 +1,8 @@
 from pypdf import PdfReader
 
+class PDFExtractionError(RuntimeError):
+    """Raised when PDF text extraction fails."""
+
 def _extract_with_pypdf(pdf_bytes: bytes) -> str:
     try:
         reader = PdfReader(BytesIO(pdf_bytes))
