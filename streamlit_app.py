@@ -68,7 +68,6 @@ with tabs[1]:
                         model=model or None,
                         api_key=api_key or None,
                         base_url=base_url or None,
-                        pdf_backend=pdf_backend,
                     )
                 st.session_state["run_id"] = run_id
                 st.session_state["criteria"] = criteria
