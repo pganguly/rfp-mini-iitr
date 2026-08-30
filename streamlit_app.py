@@ -20,17 +20,6 @@ with st.sidebar:
     model = st.text_input("Model", value=DEFAULT_MODEL)
     api_key = st.text_input("OpenRouter API key", type="password", help="Optional if OPENROUTER_API_KEY is configured in the environment.")
     base_url = st.text_input("OpenRouter base URL", value=OPENROUTER_BASE_URL, disabled=True)
-    pdf_backend_label = st.selectbox(
-        "PDF extraction library",
-        ["Auto (PyMuPDF → pypdf)", "PyMuPDF", "pypdf"],
-        index=0,
-        help="Auto tries PyMuPDF first and falls back to pypdf.",
-    )
-    pdf_backend = {
-        "Auto (PyMuPDF → pypdf)": "auto",
-        "PyMuPDF": "pymupdf",
-        "pypdf": "pypdf",
-    }[pdf_backend_label]
 
 tabs = st.tabs(["Criteria", "Supplier input", "Leaderboard / Scorecards"])
 
