@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Agentic RFP Evaluation & Supplier Ranking** is a Streamlit-based application that automates the evaluation of Request for Proposal (RFP) submissions from suppliers. It uses LangGraph for workflow orchestration, LLM-powered evaluation via OpenRouter, and deterministic Python for validation, scoring, peer comparison, tie-breaking, and final ranking.
+**Agentic RFP Evaluation & Supplier Ranking** is a Streamlit-based application that automates the evaluation of Request for Proposal (RFP) submissions from suppliers. It uses LangGraph for workflow orchestration and advanced scoring logic for intelligent supplier ranking.
 
 ## Features
 
@@ -45,11 +45,62 @@ The main application entry point providing:
 ### `app/graph.py`
 Implements the LangGraph-based evaluation workflow orchestrating the complete RFP evaluation pipeline.
 
-### `app/llm.py`
-Handles OpenRouter API integration and LLM-based evaluation of supplier proposals.
+**Key Features:**
+- **RFPGraphState**: A TypedDict that maintains the complete workflow state including:
+  - Inputs: supplier data, database path, evaluation mode (mock/LLM), model config, PDF backend
+  - Workflow state: criteria, run ID, extracted suppliers, evaluations, normalized records, ranked results
+  
+- **Workflow Nodes** (executed in sequential order):
+  1. **load_criteria_node**: Loads active criteria from the database and validates that weights sum to 100%
+  2. **create_batch_node**: Creates a new RFP run record in the database for batch tracking
+  3. **extract_documents_node**: Extracts text content from uploaded supplier PDFs using the specified backend
+  4. **evaluate_suppliers_node**: Evaluates each supplier using either mock (demo) or real LLM evaluation
+  5. **validate_node**: Normalizes raw LLM evaluations, validates scores against criterion boundaries, and generates warnings/risks
+  6. **rank_node**: Ranks suppliers using peer comparison (relative performance index) and deterministic tie-breaking
+  7. **persist_node**: Saves all results to the database, marking the run as COMPLETED or FAILED
+
+- **Graph Construction**: Built using LangGraph's StateGraph with deterministic sequential edges (START → load_criteria → create_batch → ... → persist → END)
+
+- **Main API Function**: `evaluate_batch_langgraph()` invokes the compiled graph with initial state and returns the run ID, criteria, and ranked results
 
 ### `app/scoring.py`
-Implements scoring normalization, peer comparison, and tie-breaking logic for final ranking.
+Implements intelligent scoring normalization, peer-comparison ranking, and tie-breaking logic for final supplier ranking.
+
+**Key Scoring Functions:**
+
+- **`absolute_weighted_score(eval_obj, criteria) → float`**
+  - Calculates the raw weighted score for a supplier based on individual criterion scores
+  - Formula: `Σ (criterion_score / criterion_max_score) × criterion_weight`
+  - Returns a normalized float value rounded to 4 decimal places
+  - Handles variable max scores per criterion
+
+- **`rank_suppliers(records, criteria) → list[dict]`**
+  - Ranks suppliers using a multi-step process:
+    1. **Benchmark Calculation**: For each criterion, establishes the highest valid score observed as the benchmark
+    2. **Relative Performance Indexing (PPI)**:
+       - Calculates relative performance as `(supplier_score / benchmark) × 100%` for each criterion
+       - Handles zero-benchmark edge case by assigning 100% relative performance
+       - Weights relative performance by criterion weight: `weighted_relative_sum / total_weight`
+    3. **Enrichment**: Augments each record with:
+       - absolute_score: Raw weighted score
+       - ppi: Peer Performance Index (0-100+ scale)
+       - Gap analysis: Score difference from benchmark for each criterion
+       - Detailed criteria breakdown with scores, benchmarks, gaps, and justifications
+    4. **Deterministic Tie-Breaking**: Sorts suppliers by:
+       - PPI (descending) - higher relative performance ranks first
+       - Submission date (ascending) - earlier submissions preferred
+       - Experience rating (descending) - higher ratings preferred
+       - Supplier name (ascending alphabetically) - ensures total determinism
+    5. **Rank Assignment**: Assigns final_rank starting from 1
+
+**Scoring Concepts:**
+- **Absolute Score**: Weighted sum of normalized criterion scores (0-100 scale)
+- **PPI (Peer Performance Index)**: Relative performance vs. the best supplier for each criterion, weighted by importance
+- **Benchmarking**: Dynamic baseline set by highest-scoring supplier, enabling fair peer comparison
+- **Gap Analysis**: Difference between supplier score and benchmark reveals improvement opportunities
+
+### `app/llm.py`
+Handles OpenRouter API integration and LLM-based evaluation of supplier proposals.
 
 ### `app/db.py`
 Manages SQLite database for criteria storage and persistence.
@@ -102,6 +153,20 @@ LLM evaluation output with:
 ### NormalizedEvaluation
 Final normalized evaluation with:
 - score normalization, warnings, and tie-break explanations
+
+## Workflow Architecture
+
+The application follows a deterministic, sequential workflow:
+
+```
+Load Criteria → Create Batch Run → Extract PDFs → Evaluate Suppliers 
+   → Validate & Normalize → Rank Suppliers → Persist Results
+```
+
+Each step depends on the previous one, ensuring:
+- Consistent state management
+- Error handling with proper run status tracking
+- Reproducible ranking logic independent of evaluation order
 
 ## License
 
