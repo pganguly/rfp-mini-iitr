@@ -14,25 +14,57 @@ def build_prompt(supplier_name: str, proposal_text: str, criteria: list[dict]) -
     return f"""
 You are evaluating ONE supplier proposal for an RFP.
 
+Evaluate the supplier independently against every active criterion.
+
 RULES:
-1. Use only evidence present in the supplied proposal text.
-2. Return exactly one result for every active criterion.
-3. Each score must be numeric and between 0 and the configured max_score.
-4. Put short proposal evidence in the evidence field.
-5. If evidence is missing, score conservatively and state that it is missing.
-6. Do NOT calculate weighted totals, peer benchmarks, PPI, tie-breaks, or rank.
-7. Do NOT infer facts absent from the proposal.
+1. Use only evidence explicitly present in the supplier proposal.
+2. Produce one evaluation for every active criterion.
+3. Each score must be between 0 and max_score.
+4. Provide a concise justification for each score.
+5. Provide short supporting evidence from the proposal.
+6. If evidence is missing, explicitly say so and score conservatively.
+7. Do not compare this supplier with other suppliers.
+8. Do not calculate weighted scores.
+9. Do not calculate peer benchmarks.
+10. Do not calculate PPI.
+11. Do not determine the final rank.
+12. Keep reasoning concise.
 
-ACTIVE CRITERIA:
-{criteria_json}
+RETURN ONLY VALID JSON IN THIS EXACT STRUCTURE:
 
-SUPPLIER:
+{{
+    "supplier_name": "{supplier_name}",
+    "criteria": [
+        {{
+            "criterion_id": 1,
+            "score": 0,
+            "max_score": 10,
+            "justification": "",
+            "evidence": ""
+        }}
+    ],
+    "risks": [],
+    "overall_summary": ""
+}}
+
+IMPORTANT:
+- Include one object in "criteria" for EVERY active criterion.
+- Use the actual criterion_id and configured max_score.
+- Do not omit any active criterion.
+- Do not wrap the JSON in markdown.
+- Do not add text before or after the JSON.
+- The first character of the response must be {{
+- The last character of the response must be }}
+
+Supplier:
 {supplier_name}
 
-SUPPLIER PROPOSAL:
-{proposal_text[:DEFAULT_MAX_TEXT_CHARS]}
-""".strip()
+Active criteria:
+{criteria_json}
 
+Proposal:
+{proposal_text}
+""".strip()
 
 def evaluate_with_llm(
     supplier_name: str,
@@ -66,16 +98,40 @@ def evaluate_with_llm(
         base_url=base_url or OPENROUTER_BASE_URL,
         default_headers=default_headers or None,
     )
-
-    structured_llm = llm.with_structured_output(EvaluationResponse)
-    result = structured_llm.invoke(
-        build_prompt(
-            supplier_name=supplier_name,
-            proposal_text=proposal_text,
-            criteria=criteria,
+    try:
+        structured_llm = llm.with_structured_output(EvaluationResponse)
+        result = structured_llm.invoke(
+            build_prompt(
+                supplier_name=supplier_name,
+                proposal_text=proposal_text,
+                criteria=criteria,
+            )
         )
-    )
-    return result.model_dump()
+        output = result.model_dump()
+        output["_llm_metadata"] = {
+            "model": selected_model,
+            "success": True,
+        }
+        return output
+    except Exception as exc:
+
+        # Do not crash the complete batch.
+        return {
+            "supplier_name": supplier_name,
+            "criteria": [],
+            "risks": [
+                "LLM evaluation failed."
+            ],
+            "overall_summary": (
+                "The supplier could not be evaluated by the LLM. "
+                "The validation layer will normalize missing criteria."
+            ),
+            "_llm_metadata": {
+                "model": selected_model,
+                "success": False,
+                "error": str(exc),
+            },
+        }:
 
 
 def evaluate_mock(supplier_name: str, proposal_text: str, criteria: list[dict]) -> dict:
